@@ -1,3 +1,10 @@
 .DS_Store
 .idea/
-golang/__*
+golang/**/__debug_bin*
+.env.local
+
+# VS Code：只提交共享的配置，其余个人设置不提交
+**/.vscode/*
+!**/.vscode/launch.json
+!**/.vscode/tasks.json
+!**/.vscode/extensions.json

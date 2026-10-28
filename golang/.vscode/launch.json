@@ -1,0 +1,17 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Debug current chapter",
+      "type": "go",
+      "request": "launch",
+      "mode": "auto",
+      // 调试当前打开的文件所在的包：打开哪章的 main.go，F5 就调试哪章
+      "program": "${fileDirname}",
+      // 在集成终端里运行，程序才能读到键盘输入（调试控制台不会转发 stdin）
+      "console": "integratedTerminal",
+      // 从 golang/.env.local 读取 ANTHROPIC_BASE_URL、ANTHROPIC_API_KEY（该文件已被 .gitignore 忽略；文件不存在会启动失败）
+      "envFile": "${workspaceFolder}/.env.local"
+    }
+  ]
+}
