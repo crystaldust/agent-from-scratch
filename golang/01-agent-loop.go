@@ -13,7 +13,7 @@ const promptHeader = "\033[36ms01 >> \033[0m"
 // }
 
 func main() {
-	history := []string
+	// history := []string
 
 	for {
 
@@ -37,7 +37,6 @@ func main() {
 		}
 
 		fmt.Println(userInput)
-
 	}
 
 }
