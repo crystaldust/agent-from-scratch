@@ -1,10 +1,11 @@
 package main
 
-import "fmt"
-import "strings"
-import "os"
-import "bufio"
-
+import (
+	"bufio"
+	"fmt"
+	"os"
+	"strings"
+)
 
 const promptHeader = "\033[36ms01 >> \033[0m"
 
@@ -14,6 +15,8 @@ const promptHeader = "\033[36ms01 >> \033[0m"
 
 func main() {
 	// history := []string
+	// client := anthropic.NewClient()
+	// print(client.Models)
 
 	for {
 
