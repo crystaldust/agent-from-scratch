@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log"
@@ -35,6 +36,10 @@ var bashToolParam = anthropic.ToolUnionParam{
 	OfTool: &bashTool,
 }
 
+type BashInput struct {
+	Command string `json:"command"`
+}
+
 var TOOLS = []anthropic.ToolUnionParam{bashToolParam}
 
 var client = anthropic.NewClient()
@@ -62,11 +67,29 @@ func agentLoop(ctx context.Context, systemPrompts []anthropic.TextBlockParam, me
 		}
 
 		// Execute related tool if needed
+		toolUseExists := false
 		for _, content := range resp.Content {
-			fmt.Println(content.Type)
-			if content.Type == "tool_use" {
-				fmt.Println("Handle the tool use")
+			toolUse, yes := content.AsAny().(anthropic.ToolUseBlock)
+			if yes {
+				fmt.Println(content.Type)
+				toolUseExists = true
+				var bashInput BashInput
+				if err := json.Unmarshal(toolUse.Input, &bashInput); err != nil {
+					fmt.Printf("Failed to unmarshal ToolUse input: %w\n", err)
+				} else {
+					fmt.Printf("we should execute command: %s", bashInput.Command)
+					// Execute and append the result as user message to history
+					// This is important, or the loop won't stop since the model won't return the
+					// final answer, it will always ask us to execute the command
+				}
 			}
+
+			// if content.Type == "tool_use" {
+			// 	fmt.Println("Handle the tool use")
+			// }
+		}
+		if !toolUseExists {
+			return nil
 		}
 	}
 
