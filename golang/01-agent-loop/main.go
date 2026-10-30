@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log"
 	"os"
 	"os/exec"
@@ -18,9 +19,12 @@ import (
 	"github.com/anthropics/anthropic-sdk-go/v2"
 )
 
-const MODEL = "deepseek-flash"
-const promptPrefix = "\033[36ms01 >> \033[0m"
-const SYSTEM_PROMPT_TEMPLATE = "You're a coding agent at %s. Use bash to solve tasks. Act, don't explain"
+const (
+	model                = "deepseek-flash"
+	promptPrefix         = "\033[36ms01 >> \033[0m"
+	systemPromptTemplate = "You're a coding agent at %s. Use bash to solve tasks. Act, don't explain"
+	maxTokens            = 8000
+)
 
 var bashTool = anthropic.ToolParam{
 	Name:        "bash",
@@ -44,7 +48,7 @@ type BashInput struct {
 	Command string `json:"command"`
 }
 
-var TOOLS = []anthropic.ToolUnionParam{bashToolParam}
+var tools = []anthropic.ToolUnionParam{bashToolParam}
 
 var client = anthropic.NewClient()
 
@@ -97,8 +101,8 @@ func safeEnv() []string {
 		"HOME=" + os.Getenv("HOME"),
 		"LANG=" + os.Getenv("LANG"),
 	}
-
 }
+
 func runBash(ctx context.Context, workDir, command string) (string, error) {
 	bashRunCtx, cancel := context.WithTimeout(ctx, bashTimeout)
 	defer cancel()
@@ -139,10 +143,8 @@ func handleToolUse(ctx context.Context, cwd string, use anthropic.ToolUseBlock) 
 		fmt.Printf("Failed to unmarshal ToolUse input: %v\n", err)
 		return anthropic.NewToolResultBlock(use.ID, "invalid input: "+err.Error(), true), nil
 	}
-	fmt.Printf("we should execute command: %s", bashInput.Command)
-	// Execute and append the result as user message to history
-	// This is important, or the loop won't stop since the model won't return the
-	// final answer, it will always ask us to execute the command
+	fmt.Printf("$ %s\n", bashInput.Command)
+
 	output, err := runBash(ctx, cwd, bashInput.Command)
 	if errors.Is(err, context.Canceled) {
 		return anthropic.ContentBlockParamUnion{}, err
@@ -151,7 +153,6 @@ func handleToolUse(ctx context.Context, cwd string, use anthropic.ToolUseBlock) 
 		return anthropic.NewToolResultBlock(use.ID, output+"\n"+err.Error(), true), nil
 	}
 	return anthropic.NewToolResultBlock(use.ID, output, false), nil
-
 }
 
 func agentLoop(ctx context.Context, systemPrompts []anthropic.TextBlockParam, messages []anthropic.MessageParam, cwd string) ([]anthropic.MessageParam, error) {
@@ -159,19 +160,13 @@ func agentLoop(ctx context.Context, systemPrompts []anthropic.TextBlockParam, me
 		resp, err := client.Messages.New(ctx, anthropic.MessageNewParams{
 			System:    systemPrompts,
 			Messages:  messages,
-			Model:     MODEL,
-			MaxTokens: 1000,
-			Tools:     TOOLS,
+			Model:     model,
+			MaxTokens: maxTokens,
+			Tools:     tools,
 		})
 
-		if errors.Is(err, context.Canceled) {
-			fmt.Println("\n用户中断输入")
-			return messages, fmt.Errorf("messages.new: %w", err)
-		}
 		if err != nil {
-			// log.Fatal will terminate the whole process
-			// log.Fatal(err)
-			return messages, err
+			return messages, fmt.Errorf("messages.new: %w", err)
 		}
 		messages = append(messages, resp.ToParam())
 
@@ -192,27 +187,20 @@ func agentLoop(ctx context.Context, systemPrompts []anthropic.TextBlockParam, me
 		if len(toolResults) == 0 {
 			return messages, nil // Come to the final answer without tool use
 		}
-		// Make sure we have a tool use result, append it to messages
+		// Add the tool results in this turn to the message list
 		messages = append(messages, anthropic.NewUserMessage(toolResults...))
 	}
-
 }
 
 func buildSystemPromptStr(cwd string) string {
 
-	return fmt.Sprintf(SYSTEM_PROMPT_TEMPLATE, cwd)
+	return fmt.Sprintf(systemPromptTemplate, cwd)
 }
 
 func main() {
-	// history := []string
-	// client := anthropic.NewClient()
-	// print(client.Models)
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
-	defer stop()
-
 	cwd, err := os.Getwd()
 	if err != nil {
-		log.Fatalf("Failed to build system prompt")
+		log.Fatalf("Failed to get current working directory: %v", err)
 	}
 
 	systemPromptStr := buildSystemPromptStr(cwd)
@@ -224,6 +212,10 @@ func main() {
 	for {
 		fmt.Print(promptPrefix)
 		line, err := reader.ReadString('\n')
+		if errors.Is(err, io.EOF) {
+			fmt.Println()
+			return
+		}
 		if err != nil {
 			fmt.Fprintln(os.Stderr, "read error", err)
 			return
@@ -241,18 +233,22 @@ func main() {
 		}
 
 		userInputMsgParam := anthropic.NewUserMessage(anthropic.NewTextBlock(userInput))
-		history = append(history, userInputMsgParam)
+		turn := append(history, userInputMsgParam)
 
-		history, err = agentLoop(ctx, systemPrompts, history, cwd)
+		turnCtx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+		next, err := agentLoop(turnCtx, systemPrompts, turn, cwd)
+		stop()
+
 		if errors.Is(err, context.Canceled) {
 			fmt.Println("\n用户中断")
 			continue
 		}
+
 		if err != nil {
-			fmt.Fprintln(os.Stderr, "本轮失败:", err)
+			fmt.Fprintln(os.Stderr, "agent loop failed:", err)
 			continue
 		}
-
+		history = next
 	}
 
 }
