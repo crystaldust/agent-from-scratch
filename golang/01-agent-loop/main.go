@@ -197,6 +197,16 @@ func buildSystemPromptStr(cwd string) string {
 	return fmt.Sprintf(systemPromptTemplate, cwd)
 }
 
+func isTerminal(f *os.File) bool {
+	info, err := f.Stat()
+	return err == nil && info.Mode()&os.ModeCharDevice != 0
+}
+
+const (
+	courseUp   = "\033[1A"
+	clearnLine = "\033[2K"
+)
+
 func main() {
 	cwd, err := os.Getwd()
 	if err != nil {
@@ -207,6 +217,7 @@ func main() {
 	systemPrompts := []anthropic.TextBlockParam{{Text: systemPromptStr}}
 
 	history := []anthropic.MessageParam{}
+	interactive := isTerminal(os.Stdin) && isTerminal(os.Stdout)
 
 	reader := bufio.NewReader(os.Stdin)
 	for {
@@ -225,6 +236,9 @@ func main() {
 
 		if userInput == "" {
 			// TODO What if we want to skip the empty input and hang there waiting?(Just like nothing happend)
+			if interactive {
+				fmt.Print(courseUp + "\r" + clearnLine)
+			}
 			continue
 		}
 
